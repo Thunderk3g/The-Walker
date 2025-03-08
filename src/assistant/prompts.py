@@ -1,3 +1,50 @@
+"""
+Prompts for the AI Research Assistant
+"""
+
+# Query Writer Instructions
+query_writer_instructions = """
+You are an expert academic researcher tasked with generating effective search queries.
+
+Given a research topic, generate a search query that will help find relevant academic sources.
+Your query should:
+1. Focus on the core aspects of the research topic
+2. Include key technical terms and concepts
+3. Be specific enough to yield relevant results
+4. Be broad enough to capture diverse perspectives
+
+Format your response as a single search query without any additional explanation.
+"""
+
+# Summarizer Instructions
+summarizer_instructions = """
+You are an expert academic researcher tasked with summarizing research findings.
+
+Given a collection of sources on a research topic, create a comprehensive summary that:
+1. Identifies the key theories, frameworks, and methodologies
+2. Highlights major findings and their implications
+3. Notes areas of consensus and disagreement in the literature
+4. Identifies gaps or limitations in the current research
+5. Maintains academic tone and precision
+
+Your summary should be well-structured, objective, and focused on the most relevant information.
+"""
+
+# Reflection Instructions
+reflection_instructions = """
+You are an expert academic researcher tasked with reflecting on research progress.
+
+Given the current state of a research project, analyze:
+1. The strength and comprehensiveness of the literature review
+2. The clarity and focus of the research question/thesis
+3. The appropriateness of the methodology
+4. The quality and sufficiency of the evidence gathered
+5. The logical coherence of the arguments presented
+
+Identify specific strengths, weaknesses, and areas for improvement.
+Suggest concrete next steps to address any gaps or issues identified.
+"""
+
 # Query generation instructions
 query_writer_instructions="""Your goal is to generate targeted web search query.
 
@@ -48,203 +95,223 @@ validation_check_instructions="""Evaluate the sufficiency of the literature surv
 
 Thesis statement: '{thesis_statement}'
 
-Literature survey:
+Literature summary:
 {literature_summary}
 
-Assess the following:
-1. Comprehensiveness: Does the survey cover the major aspects of the topic?
-2. Depth: Is there sufficient detail on key theories and frameworks?
-3. Currency: Does it include recent developments in the field?
-4. Relevance: Is the literature directly related to the thesis statement?
-5. Gaps: Are there obvious omissions or areas needing more research?
+Assess whether the literature survey:
+1. Covers the key theories and frameworks relevant to the topic
+2. Includes seminal works and major contributors
+3. Identifies methodological approaches
+4. Reveals gaps that the research could address
 
-Provide a structured evaluation with specific recommendations for improvement.
-"""
-
-# Knowledge gap identification instructions
-knowledge_gap_instructions="""Analyze the current research findings on {research_topic} to identify knowledge gaps.
-
-Thesis statement: {thesis_statement}
-
-Current research summary:
-{literature_summary}
-
-Identify 2-3 specific knowledge gaps that:
-1. Are directly relevant to the thesis statement
-2. Would strengthen the research if addressed
-3. Can be reasonably investigated within the scope of this project
-
-For each gap, explain:
-- What specific information is missing
-- Why this information is important
-- How addressing this gap would enhance the research
-
-Format your response as a JSON object with numbered gaps:
+Return a JSON object with your assessment:
 {{
-    "gap_1": {{
-        "description": "string",
-        "importance": "string",
-        "research_questions": ["string", "string"]
-    }},
-    "gap_2": {{
-        "description": "string",
-        "importance": "string",
-        "research_questions": ["string", "string"]
-    }}
+    "is_sufficient": true/false,
+    "strengths": ["strength1", "strength2", ...],
+    "gaps": ["gap1", "gap2", ...],
+    "recommendation": "string explanation"
 }}
 """
 
-# Targeted research instructions
-targeted_research_instructions="""Conduct targeted research to address the following knowledge gap:
+# Knowledge gap identification instructions
+knowledge_gap_instructions="""Analyze the current state of the research paper on: '{research_topic}'
 
-Research topic: {research_topic}
-Thesis statement: {thesis_statement}
+Thesis statement: '{thesis_statement}'
 
-Knowledge gap to address:
-{knowledge_gap}
+Current sections completed:
+{completed_sections}
 
-Your task is to:
-1. Formulate 1-2 specific search queries to address this gap
-2. Analyze the search results to extract relevant information
-3. Synthesize the findings in a concise, well-structured response
-4. Explain how these findings address the identified gap
-5. Note any remaining aspects of the gap that still need investigation
+Current section being worked on: {current_section}
 
-Provide a comprehensive response that directly addresses the knowledge gap.
+Identify knowledge gaps that need to be addressed to strengthen the paper.
+Focus on:
+1. Missing evidence or data
+2. Theoretical frameworks that should be included
+3. Methodological details that need clarification
+4. Counter-arguments that should be addressed
+5. Connections between sections that need strengthening
+
+Return a JSON object with your assessment:
+{{
+    "knowledge_gaps": [
+        {{
+            "gap": "description of gap",
+            "relevance": "why this gap matters",
+            "section_affected": "section name"
+        }}
+    ],
+    "priority_gap": "the most critical gap to address first"
+}}
 """
 
-# Research summary instructions
-research_summary_instructions="""Create a comprehensive research summary on {research_topic}.
+# Cross-section coherence instructions
+coherence_instructions="""Analyze the coherence and logical flow between sections of the research paper on: '{research_topic}'
 
-Thesis statement: {thesis_statement}
+Thesis statement: '{thesis_statement}'
 
-Integrate the following elements:
-1. Key findings from the literature survey
-2. Results from targeted research on knowledge gaps
-3. Synthesis of all gathered information
+Section summaries:
+{section_summaries}
 
-Your summary should:
-- Present a cohesive narrative that supports the thesis statement
-- Highlight the most significant findings and their implications
-- Organize information logically with clear transitions between topics
-- Identify remaining questions or areas for future research
-- Be comprehensive yet concise
+Evaluate:
+1. Logical progression of ideas across sections
+2. Consistency in terminology and concepts
+3. Appropriate transitions between sections
+4. Alignment with the thesis statement throughout
+5. Balance in depth and coverage across sections
 
-Create a well-structured summary that effectively communicates the current state of knowledge on this topic.
+For each issue identified, suggest specific improvements.
 """
 
-# Paper outline instructions
-paper_outline_instructions="""Create a detailed outline for a research paper on {research_topic}.
+# Style refinement instructions
+style_refinement_instructions="""Refine the writing style of the research paper on: '{research_topic}'
 
-Thesis statement: {thesis_statement}
+Focus on:
+1. Academic tone and formality
+2. Clarity and precision of language
+3. Appropriate use of technical terminology
+4. Conciseness and elimination of redundancy
+5. Consistent voice throughout the paper
 
-Research summary:
-{research_summary}
-
-Develop a comprehensive outline that includes:
-1. Introduction (with clear thesis statement)
-2. Literature Review (organized by themes or chronology)
-3. Methodology (if applicable)
-4. Results/Findings (main arguments with supporting evidence)
-5. Discussion (interpretation and implications)
-6. Conclusion (summary and future directions)
-7. References
-
-For each section, provide:
-- Main points to be covered
-- Key supporting evidence or examples
-- Logical flow and transitions between subsections
-
-The outline should demonstrate a clear, logical progression of ideas that effectively supports the thesis statement.
+Maintain the original content and insights while improving the writing quality.
 """
 
-# Section writing instructions
-section_writing_instructions="""Write the {section_name} section for a research paper on {research_topic}.
+# Paper outline generation
+outline_generator_instructions="""You are an expert research paper writer creating an outline for a paper on {research_topic}.
+
+Create a detailed outline for a research paper with the following sections:
+1. Abstract
+2. Introduction
+3. Literature Review
+4. Methodology
+5. Results
+6. Discussion
+7. Conclusion
+8. References
+
+For each section, identify 3-5 key points or subsections.
+For the Literature Review, identify key themes and research areas to explore.
+For the Methodology, suggest appropriate research methods based on the topic.
+
+Return your outline as a JSON object:
+{{
+    "working_title": "Proposed title for the paper",
+    "sections": {{
+        "abstract": ["key point 1", "key point 2"],
+        "introduction": ["key point 1", "key point 2", "key point 3"],
+        "literature_review": ["theme 1", "theme 2", "theme 3"],
+        "methodology": ["method 1", "method 2", "method 3"],
+        "results": ["expected result 1", "expected result 2"],
+        "discussion": ["discussion point 1", "discussion point 2"],
+        "conclusion": ["conclusion point 1", "conclusion point 2"]
+    }},
+    "research_questions": ["question 1", "question 2"]
+}}
+"""
+
+# Section drafting instructions
+section_writer_instructions="""You are drafting the {current_section} section of a research paper on {research_topic}.
 
 Thesis statement: {thesis_statement}
 
-Outline for this section:
-{section_outline}
-
-Research summary:
-{research_summary}
+Literature summary:
+{literature_summary}
 
 Guidelines for this section:
 {section_guidelines}
 
-Write a comprehensive, well-structured {section_name} section that:
-1. Follows academic writing conventions
-2. Integrates relevant research findings
-3. Maintains logical flow and coherence
-4. Supports the overall thesis statement
-5. Uses appropriate citations for all referenced work
+Write a comprehensive and academically rigorous section that:
+1. Aligns with the thesis statement
+2. Incorporates relevant information from the literature
+3. Maintains formal academic tone and style
+4. Follows the guidelines for this specific section
+5. Avoids meta-commentary or reference to your own thought process
 
-Produce a polished, publication-quality section that effectively communicates the research.
+CRITICAL REQUIREMENTS:
+- Start IMMEDIATELY with the section content - no introductions or meta-commentary
+- DO NOT include ANY of the following:
+  * Phrases about your thought process ("Let me start by...", "I should...", "I'll...")
+  * Explanations of what you're going to do
+  * Statements about understanding or analyzing the sources
+- Focus ONLY on factual, objective information
+- Maintain a consistent technical depth
+- Cite sources appropriately
+- Begin directly with the section text without any tags, prefixes, or meta-commentary
+"""
+
+# Section guidelines for each part of the paper
+section_guidelines = {
+    "abstract": "Provide a concise summary (150-250 words) of the entire paper, including the purpose, methods, key findings, and conclusions. No citations in this section.",
+    
+    "introduction": "Introduce the research topic, provide context, state the purpose/objectives of the paper, outline the structure of the paper, and present any research questions or hypotheses. Include 3-5 foundational citations.",
+    
+    "literature_review": "Critically analyze and synthesize existing research on the topic. Organize by themes, chronologically, or methodologically. Identify gaps in existing research that your paper addresses. Use minimum 8 scholarly sources.",
+    
+    "methodology": "Describe research design, data collection methods, analysis techniques, sample selection, and any ethical considerations. Justify methodological choices. Include limitations of the chosen methods.",
+    
+    "results": "Present findings objectively without interpretation. Use tables, figures, or charts where appropriate. Organize results logically, typically by research question or hypothesis. Do not discuss implications here.",
+    
+    "discussion": "Interpret results in relation to research questions/hypotheses. Compare findings with existing literature. Discuss implications, limitations, and alternative explanations. Suggest directions for future research.",
+    
+    "conclusion": "Summarize key findings and their significance. Restate the thesis and how it has been addressed. Emphasize the contribution to the field. End with a compelling closing statement. No new information should be introduced.",
+    
+    "references": "List all sources cited in the paper using the appropriate citation format. Only include sources directly cited in the paper."
+}
+
+# Human verification instructions
+human_verification_instructions="""You are requesting human verification for the {verification_step} step of the research paper on {research_topic}.
+
+Current state:
+{current_state}
+
+Please review the above and provide feedback on:
+1. Accuracy and completeness
+2. Clarity and coherence
+3. Alignment with research objectives
+4. Any errors or omissions
+
+Return your verification request as a JSON object:
+{{
+    "verification_step": "{verification_step}",
+    "specific_questions": ["question 1", "question 2"],
+    "suggested_improvements": ["suggestion 1", "suggestion 2"],
+    "approval_required": true/false
+}}
 """
 
 # Citation formatting instructions
-citation_formatting_instructions="""Format the following sources according to {citation_style} style:
+citation_formatter_instructions="""Format the following sources according to {citation_style} citation style.
 
 Sources:
 {sources}
 
-For each source, provide:
-1. In-text citation format
-2. Reference list entry
+Return a JSON array of formatted citations:
+[
+    "Formatted citation 1",
+    "Formatted citation 2",
+    ...
+]
 
-Ensure all formatting details (punctuation, italics, etc.) follow {citation_style} guidelines precisely.
+Follow these guidelines:
+- For APA: Author, A. A. (Year). Title of work. Publisher. DOI or URL
+- For MLA: Author. "Title of Source." Title of Container, Other contributors, Version, Number, Publisher, Publication Date, Location. URL.
+- For Chicago: Author, Title, (Publisher, Year), page range.
+- For IEEE: [1] A. Author, "Title of article," Title of Journal, vol. x, no. x, pp. xxx-xxx, Month year.
 """
 
-# Coherence check instructions
-coherence_check_instructions="""Evaluate the coherence and consistency across the following sections of a research paper on {research_topic}:
+# Paper assembly instructions
+paper_assembly_instructions="""Assemble a complete research paper on {research_topic} with the working title "{working_title}".
 
 Thesis statement: {thesis_statement}
 
-Sections to review:
+Sections:
 {sections}
 
-Assess the following aspects:
-1. Logical flow: Do ideas progress logically from one section to the next?
-2. Consistency: Are terms, concepts, and arguments used consistently throughout?
-3. Alignment with thesis: Does each section clearly support the thesis statement?
-4. Transitions: Are there effective transitions between sections?
-5. Redundancy: Is there unnecessary repetition across sections?
+Create a cohesive, well-structured academic paper that:
+1. Maintains consistent formatting throughout
+2. Ensures smooth transitions between sections
+3. Aligns all content with the thesis statement
+4. Follows academic writing conventions
+5. Includes appropriate citations throughout
 
-Identify specific strengths and weaknesses in the paper's overall coherence, with recommendations for improvement.
+The final paper should be formatted in Markdown with appropriate headings, subheadings, and formatting.
 """
-
-# Final paper assembly instructions
-final_paper_assembly_instructions="""Assemble a complete research paper on {research_topic}.
-
-Thesis statement: {thesis_statement}
-
-Sections to include:
-{sections}
-
-Your task is to:
-1. Integrate all sections into a cohesive whole
-2. Ensure proper formatting and organization
-3. Add any necessary transitions between sections
-4. Include properly formatted citations and references
-5. Create a title page with appropriate information
-
-The final paper should be a polished, publication-ready document that effectively communicates the research findings and supports the thesis statement.
-"""
-
-# Human verification request instructions
-human_verification_request_instructions="""Request human verification for the following aspect of the research paper:
-
-Research topic: {research_topic}
-Thesis statement: {thesis_statement}
-Verification needed for: {verification_step}
-
-Content to verify:
-{content_to_verify}
-
-Specific questions for the human reviewer:
-1. {verification_question_1}
-2. {verification_question_2}
-3. {verification_question_3}
-
-Please provide feedback on the above content, addressing the specific questions and noting any other issues or suggestions for improvement.
-""" 

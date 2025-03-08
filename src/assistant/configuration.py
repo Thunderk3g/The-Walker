@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional
 from langchain_core.runnables import RunnableConfig
 from typing_extensions import Annotated
 
-# Set Tavily API key in environment
-os.environ["TAVILY_API_KEY"] = "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"
+# Remove the hardcoded environment variable setting
+# os.environ["TAVILY_API_KEY"] = "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"
 
 @dataclass(kw_only=True)
 class Configuration:
@@ -17,7 +17,7 @@ class Configuration:
     max_targeted_research_attempts: int = 2
     
     # API keys
-    tavily_api_key: str = "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"
+    tavily_api_key: str = ""  # Will be loaded from environment
     
     # Paper parameters
     citation_style: str = "APA"  # APA, MLA, Chicago, IEEE
@@ -60,4 +60,4 @@ class Configuration:
             for f in fields(cls)
             if f.init
         }
-        return cls(**{k: v for k, v in values.items() if v}) 
+        return cls(**{k: v for k, v in values.items() if v})

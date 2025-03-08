@@ -11,18 +11,20 @@ from assistant.utils import deduplicate_and_format_sources, tavily_search, forma
 from assistant.state import ResearchPaperState, SummaryStateInput, SummaryStateOutput
 from assistant.prompts import (
     query_writer_instructions, 
+    summarizer_instructions, 
+    reflection_instructions,
+    outline_generator_instructions,
+    section_writer_instructions,
+    section_guidelines,
+    human_verification_instructions,
+    citation_formatter_instructions,
+    paper_assembly_instructions,
     thesis_formulation_instructions,
     literature_survey_instructions,
     validation_check_instructions,
     knowledge_gap_instructions,
-    targeted_research_instructions,
-    research_summary_instructions,
-    paper_outline_instructions,
-    section_writing_instructions,
-    citation_formatting_instructions,
-    coherence_check_instructions,
-    final_paper_assembly_instructions,
-    human_verification_request_instructions
+    coherence_instructions,
+    style_refinement_instructions
 )
 
 # Initialize research
@@ -38,22 +40,26 @@ def thesis_formulation(state: ResearchPaperState, config: RunnableConfig):
     configurable = Configuration.from_runnable_config(config)
     llm = ChatOllama(model=configurable.local_llm, temperature=0.2)
     
-    # Format the prompt using the template
-    prompt = thesis_formulation_instructions.format(
-        research_topic=state.research_topic
+    thesis_prompt = f"""
+    You are an expert academic researcher. Based on the research topic: '{state.research_topic}',
+    formulate a clear, concise thesis statement that will guide the research.
+    
+    A good thesis statement should:
+    1. Be specific and focused
+    2. Make a claim that requires evidence and analysis
+    3. Be debatable rather than stating a fact
+    4. Provide direction for the research
+    
+    Return your thesis statement and a brief explanation of its significance.
+    """
+    
+    result = llm.invoke(
+        [SystemMessage(content=thesis_prompt),
+         HumanMessage(content=f"Create a thesis statement for research on: {state.research_topic}")]
     )
     
-    # Generate thesis statement
-    messages = [
-        SystemMessage(content="You are an expert academic researcher."),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = llm.invoke(messages)
-    thesis_statement = response.content.strip()
-    
-    # Update state
-    state.thesis_statement = thesis_statement
+    # Store the thesis statement in the state
+    state.thesis_statement = result.content
     
     return state
 
@@ -61,290 +67,181 @@ def thesis_formulation(state: ResearchPaperState, config: RunnableConfig):
 def literature_survey(state: ResearchPaperState, config: RunnableConfig):
     """Conduct a literature survey on the research topic"""
     configurable = Configuration.from_runnable_config(config)
-    llm = ChatOllama(model=configurable.local_llm, temperature=configurable.temperature)
     
-    # Generate search query
-    query_prompt = query_writer_instructions.format(
-        research_topic=state.research_topic,
-        current_section="literature_review",
-        knowledge_state="Initial research phase"
+    # Generate search query based on thesis statement
+    llm = ChatOllama(model=configurable.local_llm, temperature=0.2)
+    query_prompt = f"""
+    Based on the research topic: '{state.research_topic}' 
+    and thesis statement: '{state.thesis_statement}',
+    generate a search query to find relevant academic literature.
+    Focus on finding key papers, theories, and methodologies.
+    """
+    
+    query_result = llm.invoke(
+        [SystemMessage(content=query_prompt),
+         HumanMessage(content="Generate a search query for literature review")]
     )
     
-    messages = [
-        SystemMessage(content="You are a research assistant."),
-        HumanMessage(content=query_prompt)
-    ]
+    state.search_query = query_result.content
     
-    response = llm.invoke(messages)
-    
-    try:
-        # Parse the JSON response
-        query_data = json.loads(response.content)
-        search_query = query_data.get("query", f"literature review {state.research_topic}")
-    except:
-        # Fallback if JSON parsing fails
-        search_query = f"literature review {state.research_topic}"
-    
-    # Update state
-    state.search_query = search_query
-    
-    # Perform web search
-    search_results = tavily_search(search_query, include_raw_content=True, max_results=5)
+    # Perform web search to gather literature
+    search_results = tavily_search(state.search_query)
+    state.web_research_results.extend(search_results)
     
     # Format and deduplicate sources
     formatted_sources = deduplicate_and_format_sources(search_results)
+    state.sources_gathered.extend(formatted_sources)
     
-    # Update state with search results
-    state.web_research_results.append(search_results)
-    state.sources_gathered.append(formatted_sources)
+    # Summarize the literature findings
+    llm_summarizer = ChatOllama(model=configurable.local_llm, temperature=0.1)
     
-    # Generate literature survey
-    survey_prompt = literature_survey_instructions.format(
-        research_topic=state.research_topic,
-        thesis_statement=state.thesis_statement
+    summarizer_prompt = f"""
+    Summarize the key findings from the literature on: '{state.research_topic}'
+    
+    Focus on:
+    1. Major theories and frameworks
+    2. Key researchers and their contributions
+    3. Methodological approaches
+    4. Gaps in the existing literature
+    
+    Sources:
+    {format_sources(formatted_sources)}
+    """
+    
+    summary_result = llm_summarizer.invoke(
+        [SystemMessage(content=summarizer_prompt),
+         HumanMessage(content="Summarize the literature findings")]
     )
     
-    messages = [
-        SystemMessage(content="You are an expert academic researcher."),
-        HumanMessage(content=f"{survey_prompt}\n\nSources:\n{formatted_sources}")
-    ]
-    
-    response = llm.invoke(messages)
-    literature_summary = response.content.strip()
-    
-    # Update state
-    state.literature_summary = literature_summary
-    state.research_loop_count += 1
+    state.literature_summary = summary_result.content
     
     return state
 
 # Validation Check
 def validation_check(state: ResearchPaperState, config: RunnableConfig):
-    """Validate the literature survey"""
+    """Validate if the literature survey provides sufficient foundation"""
     configurable = Configuration.from_runnable_config(config)
     llm = ChatOllama(model=configurable.local_llm, temperature=0.1)
     
-    # Format the prompt
-    prompt = validation_check_instructions.format(
-        research_topic=state.research_topic,
-        thesis_statement=state.thesis_statement,
-        literature_summary=state.literature_summary
+    validation_prompt = f"""
+    Evaluate the sufficiency of the literature survey for the research topic: '{state.research_topic}'
+    
+    Thesis statement: '{state.thesis_statement}'
+    
+    Literature summary:
+    {state.literature_summary}
+    
+    Assess whether the literature survey:
+    1. Covers the key theories and frameworks relevant to the topic
+    2. Includes seminal works and major contributors
+    3. Identifies methodological approaches
+    4. Reveals gaps that the research could address
+    
+    Return a JSON object with your assessment:
+    {{
+        "is_sufficient": true/false,
+        "strengths": ["strength1", "strength2", ...],
+        "gaps": ["gap1", "gap2", ...],
+        "recommendation": "string explanation"
+    }}
+    """
+    
+    validation_result = llm.invoke(
+        [SystemMessage(content=validation_prompt),
+         HumanMessage(content="Evaluate the literature survey")]
     )
-    
-    messages = [
-        SystemMessage(content="You are a research validation expert."),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = llm.invoke(messages)
-    validation_result = response.content.strip()
-    
-    # Simple heuristic to determine if validation passed
-    validation_passed = "sufficient" in validation_result.lower() and "comprehensive" in validation_result.lower()
-    
-    # Update state
-    state.validation_result = {
-        "result": validation_result,
-        "passed": validation_passed
-    }
-    state.validation_passed = validation_passed
-    
-    return state
-
-# Identify Knowledge Gaps
-def identify_knowledge_gaps(state: ResearchPaperState, config: RunnableConfig):
-    """Identify knowledge gaps in the research"""
-    configurable = Configuration.from_runnable_config(config)
-    llm = ChatOllama(model=configurable.local_llm, temperature=0.2)
-    
-    # Format the prompt
-    prompt = knowledge_gap_instructions.format(
-        research_topic=state.research_topic,
-        thesis_statement=state.thesis_statement,
-        literature_summary=state.literature_summary
-    )
-    
-    messages = [
-        SystemMessage(content="You are a research gap analysis expert."),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = llm.invoke(messages)
     
     try:
-        # Parse the JSON response
-        gaps = json.loads(response.content)
-    except:
+        assessment = json.loads(validation_result.content)
+        state.validation_result = assessment
+        state.validation_passed = assessment.get("is_sufficient", False)
+    except json.JSONDecodeError:
         # Fallback if JSON parsing fails
-        gaps = {
-            "gap_1": {
-                "description": "Unable to parse knowledge gaps",
-                "importance": "N/A",
-                "research_questions": ["What additional information is needed?"]
-            }
-        }
-    
-    # Update state
-    state.knowledge_gaps = gaps
+        state.validation_result = {"is_sufficient": False, "recommendation": "Unable to parse validation result"}
+        state.validation_passed = False
     
     return state
 
 # Targeted Research
 def targeted_research(state: ResearchPaperState, config: RunnableConfig):
-    """Conduct targeted research to address knowledge gaps"""
+    """Conduct targeted research to address gaps identified in validation"""
     configurable = Configuration.from_runnable_config(config)
-    llm = ChatOllama(model=configurable.local_llm, temperature=configurable.temperature)
+    llm = ChatOllama(model=configurable.local_llm, temperature=0.2)
     
-    # Get the first knowledge gap
-    if not state.knowledge_gaps:
-        return state
+    # Generate targeted search queries based on identified gaps
+    gaps = state.validation_result.get("gaps", [])
     
-    first_gap_key = list(state.knowledge_gaps.keys())[0]
-    knowledge_gap = state.knowledge_gaps[first_gap_key]
-    
-    # Format the gap as text
-    gap_text = f"Gap: {knowledge_gap.get('description', 'Unknown gap')}\n"
-    gap_text += f"Importance: {knowledge_gap.get('importance', 'Unknown importance')}\n"
-    gap_text += "Research questions:\n"
-    for question in knowledge_gap.get('research_questions', []):
-        gap_text += f"- {question}\n"
-    
-    # Generate search query for the gap
-    query_prompt = query_writer_instructions.format(
-        research_topic=state.research_topic,
-        current_section="targeted_research",
-        knowledge_state=f"Addressing knowledge gap: {knowledge_gap.get('description', 'Unknown gap')}"
-    )
-    
-    messages = [
-        SystemMessage(content="You are a research assistant."),
-        HumanMessage(content=query_prompt)
-    ]
-    
-    response = llm.invoke(messages)
-    
-    try:
-        # Parse the JSON response
-        query_data = json.loads(response.content)
-        search_query = query_data.get("query", f"research {knowledge_gap.get('description', state.research_topic)}")
-    except:
-        # Fallback if JSON parsing fails
-        search_query = f"research {knowledge_gap.get('description', state.research_topic)}"
-    
-    # Perform web search
-    search_results = tavily_search(search_query, include_raw_content=True, max_results=3)
-    
-    # Format and deduplicate sources
-    formatted_sources = deduplicate_and_format_sources(search_results)
-    
-    # Update state with search results
-    state.web_research_results.append(search_results)
-    state.sources_gathered.append(formatted_sources)
-    
-    # Generate targeted research summary
-    research_prompt = targeted_research_instructions.format(
-        research_topic=state.research_topic,
-        thesis_statement=state.thesis_statement,
-        knowledge_gap=gap_text
-    )
-    
-    messages = [
-        SystemMessage(content="You are an expert academic researcher."),
-        HumanMessage(content=f"{research_prompt}\n\nSources:\n{formatted_sources}")
-    ]
-    
-    response = llm.invoke(messages)
-    targeted_research_summary = response.content.strip()
-    
-    # Update literature summary with new findings
-    updated_summary = f"{state.literature_summary}\n\nAdditional Research on {knowledge_gap.get('description', 'Knowledge Gap')}:\n{targeted_research_summary}"
-    state.literature_summary = updated_summary
-    
-    # Remove the addressed gap
-    if first_gap_key in state.knowledge_gaps:
-        del state.knowledge_gaps[first_gap_key]
-    
-    return state
-
-# Generate Research Summary
-def generate_research_summary(state: ResearchPaperState, config: RunnableConfig):
-    """Generate a comprehensive research summary"""
-    configurable = Configuration.from_runnable_config(config)
-    llm = ChatOllama(model=configurable.local_llm, temperature=configurable.temperature)
-    
-    # Format the prompt
-    prompt = research_summary_instructions.format(
-        research_topic=state.research_topic,
-        thesis_statement=state.thesis_statement
-    )
-    
-    messages = [
-        SystemMessage(content="You are an expert academic researcher."),
-        HumanMessage(content=f"{prompt}\n\nLiterature Summary:\n{state.literature_summary}")
-    ]
-    
-    response = llm.invoke(messages)
-    research_summary = response.content.strip()
-    
-    # Update state
-    state.running_summary = research_summary
-    
-    return state
-
-# Generate Paper Outline
-def generate_paper_outline(state: ResearchPaperState, config: RunnableConfig):
-    """Generate an outline for the research paper"""
-    configurable = Configuration.from_runnable_config(config)
-    llm = ChatOllama(model=configurable.local_llm, temperature=configurable.temperature)
-    
-    # Format the prompt
-    prompt = paper_outline_instructions.format(
-        research_topic=state.research_topic,
-        thesis_statement=state.thesis_statement,
-        research_summary=state.running_summary
-    )
-    
-    messages = [
-        SystemMessage(content="You are an expert academic writer."),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = llm.invoke(messages)
-    outline_text = response.content.strip()
-    
-    # Parse the outline into sections
-    sections = {}
-    current_section = None
-    section_content = []
-    
-    for line in outline_text.split('\n'):
-        line = line.strip()
-        if not line:
-            continue
+    if not gaps:
+        # If no specific gaps were identified, generate a general improvement query
+        query_prompt = f"""
+        Based on the research topic: '{state.research_topic}' 
+        and thesis statement: '{state.thesis_statement}',
+        generate a search query to find additional relevant literature
+        that would strengthen the foundation for this research.
+        """
         
-        # Check if this is a main section header
-        if line.startswith('1.') or line.startswith('2.') or line.startswith('3.') or \
-           line.startswith('4.') or line.startswith('5.') or line.startswith('6.') or \
-           line.startswith('7.'):
-            # Save the previous section if it exists
-            if current_section and section_content:
-                sections[current_section] = section_content
+        query_result = llm.invoke(
+            [SystemMessage(content=query_prompt),
+             HumanMessage(content="Generate a search query for additional literature")]
+        )
+        
+        state.search_query = query_result.content
+        
+        # Perform web search with the new query
+        search_results = tavily_search(state.search_query)
+        state.web_research_results.extend(search_results)
+        
+        # Format and deduplicate sources
+        formatted_sources = deduplicate_and_format_sources(search_results)
+        state.sources_gathered.extend(formatted_sources)
+    else:
+        # For each gap, generate a targeted query and gather sources
+        for gap in gaps:
+            query_prompt = f"""
+            Generate a search query to address this specific gap in the literature:
+            '{gap}'
             
-            # Extract the section name
-            parts = line.split('.', 1)
-            if len(parts) > 1:
-                section_name = parts[1].strip().lower().replace(' ', '_')
-                current_section = section_name
-                section_content = [line]
-        elif current_section:
-            section_content.append(line)
+            The query should help find sources related to the research topic: '{state.research_topic}'
+            and thesis statement: '{state.thesis_statement}'
+            """
+            
+            query_result = llm.invoke(
+                [SystemMessage(content=query_prompt),
+                 HumanMessage(content=f"Generate a search query for gap: {gap}")]
+            )
+            
+            gap_query = query_result.content
+            
+            # Perform web search with the gap-specific query
+            search_results = tavily_search(gap_query)
+            state.web_research_results.extend(search_results)
+            
+            # Format and deduplicate sources
+            formatted_sources = deduplicate_and_format_sources(search_results)
+            state.sources_gathered.extend(formatted_sources)
     
-    # Save the last section
-    if current_section and section_content:
-        sections[current_section] = section_content
+    # Update the literature summary with new findings
+    llm_summarizer = ChatOllama(model=configurable.local_llm, temperature=0.1)
     
-    # Update state
-    state.outline = sections
+    summarizer_prompt = f"""
+    Update the literature summary with new findings for the research topic: '{state.research_topic}'
+    
+    Previous summary:
+    {state.literature_summary}
+    
+    New sources:
+    {format_sources(state.sources_gathered[-len(formatted_sources):])}
+    
+    Provide a comprehensive updated summary that integrates the new information
+    with the previous findings.
+    """
+    
+    summary_result = llm_summarizer.invoke(
+        [SystemMessage(content=summarizer_prompt),
+         HumanMessage(content="Update the literature summary with new findings")]
+    )
+    
+    state.literature_summary = summary_result.content
     
     return state
 
@@ -352,257 +249,304 @@ def generate_paper_outline(state: ResearchPaperState, config: RunnableConfig):
 def draft_section(state: ResearchPaperState, config: RunnableConfig):
     """Draft a section of the research paper"""
     configurable = Configuration.from_runnable_config(config)
-    llm = ChatOllama(model=configurable.local_llm, temperature=configurable.temperature)
+    llm = ChatOllama(model=configurable.local_llm, temperature=0.3)
     
-    # Get the current section to work on
-    current_section = state.current_section
-    
-    # Get the outline for this section
-    section_outline = "\n".join(state.outline.get(current_section, []))
-    
-    # Format the prompt
-    prompt = section_writing_instructions.format(
-        section_name=current_section,
+    # Get section guidelines based on current section
+    section_prompt = section_writer_instructions.format(
         research_topic=state.research_topic,
-        thesis_statement=state.thesis_statement,
-        section_outline=section_outline,
-        research_summary=state.running_summary,
-        section_guidelines=f"Write a comprehensive {current_section} section."
+        current_section=state.current_section,
+        section_guidelines=section_guidelines.get(state.current_section, ""),
+        literature_summary=state.literature_summary,
+        thesis_statement=state.thesis_statement
     )
     
-    messages = [
-        SystemMessage(content="You are an expert academic writer."),
-        HumanMessage(content=prompt)
-    ]
+    # Draft the section
+    section_result = llm.invoke(
+        [SystemMessage(content=section_prompt),
+         HumanMessage(content=f"Write the {state.current_section} section")]
+    )
     
-    response = llm.invoke(messages)
-    section_content = response.content.strip()
+    # Store the drafted section
+    state.sections[state.current_section] = section_result.content
     
-    # Update state
-    state.sections[current_section] = section_content
+    return state
+
+# Identify Knowledge Gaps
+def identify_knowledge_gaps(state: ResearchPaperState, config: RunnableConfig):
+    """Identify knowledge gaps in the current research"""
+    configurable = Configuration.from_runnable_config(config)
+    llm = ChatOllama(model=configurable.local_llm, temperature=0.2)
     
-    # Mark section as completed
-    if current_section not in state.completed_sections:
-        state.completed_sections.append(current_section)
+    gap_prompt = f"""
+    Analyze the current state of the research paper on: '{state.research_topic}'
     
-    # Move to the next section
-    section_order = ['abstract', 'introduction', 'literature_review', 'methodology', 
-                     'results', 'discussion', 'conclusion', 'references']
+    Thesis statement: '{state.thesis_statement}'
+    
+    Current sections completed:
+    {', '.join([section for section, content in state.sections.items() if content])}
+    
+    Current section being worked on: {state.current_section}
+    
+    Identify knowledge gaps that need to be addressed to strengthen the paper.
+    Focus on:
+    1. Missing evidence or data
+    2. Theoretical frameworks that should be included
+    3. Methodological details that need clarification
+    4. Counter-arguments that should be addressed
+    5. Connections between sections that need strengthening
+    
+    Return a JSON object with your assessment:
+    {{
+        "knowledge_gaps": [
+            {{
+                "gap": "description of gap",
+                "relevance": "why this gap matters",
+                "section_affected": "section name"
+            }}
+        ],
+        "priority_gap": "the most critical gap to address first"
+    }}
+    """
+    
+    gap_result = llm.invoke(
+        [SystemMessage(content=gap_prompt),
+         HumanMessage(content="Identify knowledge gaps in the research")]
+    )
     
     try:
-        current_index = section_order.index(current_section)
-        next_index = current_index + 1
-        if next_index < len(section_order):
-            state.current_section = section_order[next_index]
-    except ValueError:
-        # If current section is not in the standard order, default to the next one
-        state.current_section = 'conclusion'
+        gaps = json.loads(gap_result.content)
+        state.knowledge_gaps = gaps
+    except json.JSONDecodeError:
+        # Fallback if JSON parsing fails
+        state.knowledge_gaps = {
+            "knowledge_gaps": [{"gap": "Need more comprehensive research", "relevance": "To strengthen the paper", "section_affected": state.current_section}],
+            "priority_gap": "Need more comprehensive research"
+        }
     
     return state
 
 # Completion Check
 def completion_check(state: ResearchPaperState):
-    """Check if all sections are complete"""
-    required_sections = ['abstract', 'introduction', 'literature_review', 'conclusion', 'references']
-    completed_required = all(section in state.completed_sections for section in required_sections)
+    """Check if all sections of the paper are complete"""
+    # Check if all required sections have content
+    required_sections = ["abstract", "introduction", "literature_review", "methodology", "results", "discussion", "conclusion"]
     
-    # Update state
-    state.all_sections_complete = completed_required
+    all_sections_complete = all(state.sections.get(section) for section in required_sections)
+    
+    # Store the completion status
+    state.all_sections_complete = all_sections_complete
     
     return state
 
 # Cross-Section Coherence
 def cross_section_coherence(state: ResearchPaperState, config: RunnableConfig):
-    """Check coherence across sections"""
+    """Ensure coherence and logical flow between sections"""
     configurable = Configuration.from_runnable_config(config)
-    llm = ChatOllama(model=configurable.local_llm, temperature=0.1)
+    llm = ChatOllama(model=configurable.local_llm, temperature=0.2)
     
-    # Prepare sections for review
-    sections_text = ""
-    for section_name, content in state.sections.items():
-        if content:
-            sections_text += f"## {section_name.upper()}\n{content}\n\n"
+    # Prepare a summary of each section for analysis
+    sections_summary = "\n\n".join([f"{section.upper()}:\n{content[:300]}..." for section, content in state.sections.items() if content])
     
-    # Format the prompt
-    prompt = coherence_check_instructions.format(
-        research_topic=state.research_topic,
-        thesis_statement=state.thesis_statement,
-        sections=sections_text
+    coherence_prompt = f"""
+    Analyze the coherence and logical flow between sections of the research paper on: '{state.research_topic}'
+    
+    Thesis statement: '{state.thesis_statement}'
+    
+    Section summaries:
+    {sections_summary}
+    
+    Evaluate:
+    1. Logical progression of ideas across sections
+    2. Consistency in terminology and concepts
+    3. Appropriate transitions between sections
+    4. Alignment with the thesis statement throughout
+    5. Balance in depth and coverage across sections
+    
+    For each issue identified, suggest specific improvements.
+    """
+    
+    coherence_result = llm.invoke(
+        [SystemMessage(content=coherence_prompt),
+         HumanMessage(content="Analyze cross-section coherence")]
     )
     
-    messages = [
-        SystemMessage(content="You are an expert academic editor."),
-        HumanMessage(content=prompt)
-    ]
+    # Store the coherence analysis
+    state.coherence_analysis = coherence_result.content
     
-    response = llm.invoke(messages)
-    coherence_analysis = response.content.strip()
+    # Apply the suggested improvements to each section
+    improvement_prompt = f"""
+    Based on the coherence analysis:
     
-    # Update state
-    state.coherence_analysis = coherence_analysis
+    {state.coherence_analysis}
+    
+    Revise the {{section}} section to improve overall paper coherence.
+    
+    Current content:
+    {{content}}
+    
+    Provide an improved version that addresses the coherence issues while maintaining
+    the original content and insights.
+    """
+    
+    for section in [s for s, content in state.sections.items() if content]:
+        section_prompt = improvement_prompt.format(
+            section=section,
+            content=state.sections[section]
+        )
+        
+        improvement_result = llm.invoke(
+            [SystemMessage(content=section_prompt),
+             HumanMessage(content=f"Improve the {section} section for better coherence")]
+        )
+        
+        # Update the section with improved content
+        state.sections[section] = improvement_result.content
+    
+    return state
+
+# Style Refinement
+def style_refinement(state: ResearchPaperState, config: RunnableConfig):
+    """Refine the writing style, clarity, and academic tone"""
+    configurable = Configuration.from_runnable_config(config)
+    llm = ChatOllama(model=configurable.local_llm, temperature=0.2)
+    
+    style_prompt = f"""
+    Refine the writing style of the research paper on: '{state.research_topic}'
+    
+    Focus on:
+    1. Academic tone and formality
+    2. Clarity and precision of language
+    3. Appropriate use of technical terminology
+    4. Conciseness and elimination of redundancy
+    5. Consistent voice throughout the paper
+    
+    Maintain the original content and insights while improving the writing quality.
+    """
+    
+    # Refine each section
+    for section in [s for s, content in state.sections.items() if content]:
+        section_prompt = f"""
+        {style_prompt}
+        
+        Current content of {section} section:
+        {state.sections[section]}
+        
+        Provide a refined version with improved writing style.
+        """
+        
+        style_result = llm.invoke(
+            [SystemMessage(content=section_prompt),
+             HumanMessage(content=f"Refine the writing style of the {section} section")]
+        )
+        
+        # Update the section with refined content
+        state.sections[section] = style_result.content
     
     return state
 
 # Citation Formatting
 def citation_formatting(state: ResearchPaperState, config: RunnableConfig):
-    """Format citations according to the specified style"""
+    """Format citations and references according to the specified style"""
     configurable = Configuration.from_runnable_config(config)
     llm = ChatOllama(model=configurable.local_llm, temperature=0.1)
     
-    # Extract sources from web research results
-    sources = []
-    for result in state.web_research_results:
-        if isinstance(result, dict) and 'results' in result:
-            sources.extend(result['results'])
-    
-    # Format sources as text
-    sources_text = format_sources(sources)
-    
-    # Format the prompt
-    prompt = citation_formatting_instructions.format(
-        citation_style=state.citation_style,
-        sources=sources_text
+    # Use the existing citation formatter instructions
+    citation_prompt = citation_formatter_instructions.format(
+        citation_style=state.citation_style if hasattr(state, 'citation_style') else "APA",
+        sources=json.dumps(state.sources_gathered, indent=2)
     )
     
-    messages = [
-        SystemMessage(content="You are an expert in academic citations."),
-        HumanMessage(content=prompt)
-    ]
+    citation_result = llm.invoke(
+        [SystemMessage(content=citation_prompt),
+         HumanMessage(content="Format the citations and references")]
+    )
     
-    response = llm.invoke(messages)
-    formatted_citations = response.content.strip()
+    try:
+        formatted_citations = json.loads(citation_result.content)
+        state.citations["formatted"] = formatted_citations
+    except json.JSONDecodeError:
+        # Fallback if JSON parsing fails
+        state.citations["formatted"] = [format_citation(source) for source in state.sources_gathered]
     
-    # Update state
-    state.citations['formatted'] = formatted_citations
-    state.citations['sources'] = sources
+    # Create the references section
+    references_content = "# References\n\n"
+    for citation in state.citations["formatted"]:
+        references_content += f"{citation}\n\n"
     
-    # Update references section
-    state.sections['references'] = formatted_citations
+    state.sections["references"] = references_content
     
     return state
 
-# Assemble Final Output
+# Final Output
 def assemble_final_output(state: ResearchPaperState, config: RunnableConfig):
     """Assemble the final research paper"""
     configurable = Configuration.from_runnable_config(config)
     llm = ChatOllama(model=configurable.local_llm, temperature=0.1)
     
-    # Prepare sections for assembly
-    sections_text = ""
-    for section_name, content in state.sections.items():
-        if content:
-            sections_text += f"## {section_name.upper()}\n{content}\n\n"
-    
-    # Format the prompt
-    prompt = final_paper_assembly_instructions.format(
+    # Use the existing paper assembly instructions
+    assembly_prompt = paper_assembly_instructions.format(
         research_topic=state.research_topic,
-        thesis_statement=state.thesis_statement,
-        sections=sections_text
+        working_title=state.working_title,
+        thesis_statement=state.thesis_statement if hasattr(state, 'thesis_statement') else "",
+        sections=json.dumps({k: v for k, v in state.sections.items() if v}, indent=2)
     )
     
-    messages = [
-        SystemMessage(content="You are an expert academic editor."),
-        HumanMessage(content=prompt)
-    ]
+    assembly_result = llm.invoke(
+        [SystemMessage(content=assembly_prompt),
+         HumanMessage(content="Assemble the final research paper")]
+    )
     
-    response = llm.invoke(messages)
-    final_paper = response.content.strip()
-    
-    # Update state
-    state.final_paper = final_paper
+    # Store the final paper
+    state.final_paper = assembly_result.content
     
     return state
 
-# Routing Functions
+# Routing functions
 def route_after_validation(state: ResearchPaperState) -> Literal["draft_section", "targeted_research"]:
-    """Route after validation check"""
+    """Route based on validation check result"""
     if state.validation_passed:
         return "draft_section"
     else:
         return "targeted_research"
 
 def route_after_completion(state: ResearchPaperState) -> Literal["identify_knowledge_gaps", "cross_section_coherence"]:
-    """Route after completion check"""
+    """Route based on completion check result"""
     if state.all_sections_complete:
         return "cross_section_coherence"
     else:
         return "identify_knowledge_gaps"
 
-def route_after_knowledge_gaps(state: ResearchPaperState) -> Literal["targeted_research", "generate_research_summary"]:
-    """Route after identifying knowledge gaps"""
-    if state.knowledge_gaps and len(state.knowledge_gaps) > 0:
-        return "targeted_research"
-    else:
-        return "generate_research_summary"
+# Build the state graph
+builder = StateGraph(ResearchPaperState, input=SummaryStateInput, output=SummaryStateOutput, config_schema=Configuration)
 
-# Build the graph
-def build_graph():
-    """Build the research assistant graph"""
-    # Create a new graph
-    builder = StateGraph(ResearchPaperState)
-    
-    # Add nodes
-    builder.add_node("initialize_research", initialize_research)
-    builder.add_node("thesis_formulation", thesis_formulation)
-    builder.add_node("literature_survey", literature_survey)
-    builder.add_node("validation_check", validation_check)
-    builder.add_node("identify_knowledge_gaps", identify_knowledge_gaps)
-    builder.add_node("targeted_research", targeted_research)
-    builder.add_node("generate_research_summary", generate_research_summary)
-    builder.add_node("generate_paper_outline", generate_paper_outline)
-    builder.add_node("draft_section", draft_section)
-    builder.add_node("completion_check", completion_check)
-    builder.add_node("cross_section_coherence", cross_section_coherence)
-    builder.add_node("citation_formatting", citation_formatting)
-    builder.add_node("assemble_final_output", assemble_final_output)
-    
-    # Add edges
-    builder.add_edge(START, "initialize_research")
-    builder.add_edge("initialize_research", "thesis_formulation")
-    builder.add_edge("thesis_formulation", "literature_survey")
-    builder.add_edge("literature_survey", "validation_check")
-    
-    # Conditional routing after validation
-    builder.add_conditional_edges(
-        "validation_check",
-        route_after_validation,
-        {
-            "draft_section": "draft_section",
-            "targeted_research": "identify_knowledge_gaps"
-        }
-    )
-    
-    # Conditional routing after knowledge gaps
-    builder.add_conditional_edges(
-        "identify_knowledge_gaps",
-        route_after_knowledge_gaps,
-        {
-            "targeted_research": "targeted_research",
-            "generate_research_summary": "generate_research_summary"
-        }
-    )
-    
-    builder.add_edge("targeted_research", "validation_check")
-    builder.add_edge("generate_research_summary", "generate_paper_outline")
-    builder.add_edge("generate_paper_outline", "draft_section")
-    builder.add_edge("draft_section", "completion_check")
-    
-    # Conditional routing after completion check
-    builder.add_conditional_edges(
-        "completion_check",
-        route_after_completion,
-        {
-            "identify_knowledge_gaps": "identify_knowledge_gaps",
-            "cross_section_coherence": "cross_section_coherence"
-        }
-    )
-    
-    builder.add_edge("cross_section_coherence", "citation_formatting")
-    builder.add_edge("citation_formatting", "assemble_final_output")
-    builder.add_edge("assemble_final_output", END)
-    
-    # Compile the graph
-    return builder.compile()
+# Add nodes
+builder.add_node("initialize_research", initialize_research)
+builder.add_node("thesis_formulation", thesis_formulation)
+builder.add_node("literature_survey", literature_survey)
+builder.add_node("validation_check", validation_check)
+builder.add_node("targeted_research", targeted_research)
+builder.add_node("draft_section", draft_section)
+builder.add_node("completion_check", completion_check)
+builder.add_node("identify_knowledge_gaps", identify_knowledge_gaps)
+builder.add_node("cross_section_coherence", cross_section_coherence)
+builder.add_node("style_refinement", style_refinement)
+builder.add_node("citation_formatting", citation_formatting)
+builder.add_node("assemble_final_output", assemble_final_output)
 
-# Create the graph
-graph = build_graph() 
+# Add edges according to the Mermaid diagram
+builder.add_edge(START, "initialize_research")
+builder.add_edge("initialize_research", "thesis_formulation")
+builder.add_edge("thesis_formulation", "literature_survey")
+builder.add_edge("literature_survey", "validation_check")
+builder.add_conditional_edges("validation_check", route_after_validation)
+builder.add_edge("draft_section", "completion_check")
+builder.add_conditional_edges("completion_check", route_after_completion)
+builder.add_edge("identify_knowledge_gaps", "targeted_research")
+builder.add_edge("targeted_research", "validation_check")
+builder.add_edge("cross_section_coherence", "style_refinement")
+builder.add_edge("style_refinement", "citation_formatting")
+builder.add_edge("citation_formatting", "assemble_final_output")
+builder.add_edge("assemble_final_output", END)
+
+# Compile the graph
+graph = builder.compile()

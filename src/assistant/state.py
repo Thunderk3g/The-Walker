@@ -104,4 +104,4 @@ class SummaryStateInput(TypedDict):
 class SummaryStateOutput(TypedDict):
     running_summary: str = field(default=None)  # Final report summary
     final_paper: str = field(default=None)  # Complete research paper
-    verification_report: Dict = field(default_factory=dict)  # Human verification summary 
+    verification_report: Dict = field(default_factory=dict)  # Human verification summary
